@@ -73,15 +73,20 @@ python3 -u main.py
 服务器配置
 
 1. 填写服务器地址(URL)
+
 2. 如果你是自有域名，例如:你的域名为 `www.neno.com`,那么填写`http://www.neno.com/neno-wx`,配置了https就填写`https://www.neno.com/neno-wx`
+
 3. 如果你是在腾讯云的serverless部署进行的部署,例如:访问路径为`https://service-1234.gz.apigw.tencentcs.com/release/` 那就填写`https://service-qk5a9134-1234.gz.apigw.tencentcs.com/release/neno-wx`
+
 4. 填写令牌(Token)
+
 5. 填写消息加解密密钥(EncodingAESKey),使用自动生成功能即可
+   
+   token和消息加解密密钥(EncodingAESKey)都是需要填写到环境变量当中的。
 
-  token和消息加解密密钥(EncodingAESKey)都是需要填写到环境变量当中的。
+6. 消息加解密方式选择安全模式
 
-4. 消息加解密方式选择安全模式
-5. 点击提交，提示提交成功，即可在你的公众号中发消息进行测试。
+7. 点击提交，提示提交成功，即可在你的公众号中发消息进行测试。
 
 ## neno使用如何微信快速记录笔记
 

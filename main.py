@@ -1,4 +1,5 @@
 import datetime
+import imghdr
 import time
 from sanic import Sanic
 from sanic.response import text
@@ -76,7 +77,6 @@ def nenoWXGET(request):
 def nenoWXPOST(request):
     signature = request.args.get("signature")
     msg_signature = request.args.get("msg_signature")
-
     timestamp = request.args.get("timestamp")
     nonce = request.args.get("nonce")
 
@@ -94,9 +94,11 @@ def nenoWXPOST(request):
             pass
         msg = parse_message(decrypted_xml)
         # print(msg.content)
-        content = msg.content
         userId = msg.source
+
         if msg.type == "text":
+            content = msg.content
+
             if content == "我的用户id":
                 return text(ceeateReply(userId, msg, nonce, timestamp))
             if content == "删除我的github配置":
@@ -104,28 +106,47 @@ def nenoWXPOST(request):
                 return text(ceeateReply("已删除", msg, nonce, timestamp))
             if myselfUserId is not None:
                 if myselfUserId == userId:
-                    return singleUser(content, msg, userId, nonce, timestamp)
+                    return singleUser(content, "", msg, userId, nonce, timestamp)
                 else:
                     return text(ceeateReply("当前只有指定用户才可使用此功能", msg, nonce, timestamp))
             else:
                 try:
-                    return multipleUser(content, msg, userId, nonce, timestamp)
+                    return multipleUser(content, "", msg, userId, nonce, timestamp)
+
+                except BaseException as e:
+                    return text(ceeateReply(str(e), msg, nonce, timestamp))
+        elif msg.type == "image":
+            photo = getFileDown(msg.image)
+
+            if myselfUserId is not None:
+                if myselfUserId == userId:
+                    return singleUser("微信图片", photo, msg, userId, nonce, timestamp)
+                else:
+                    return text(ceeateReply("当前只有指定用户才可使用此功能", msg, nonce, timestamp))
+            else:
+                try:
+                    return multipleUser("微信图片", photo, msg, userId, nonce, timestamp)
                 except BaseException as e:
                     return text(ceeateReply(str(e), msg, nonce, timestamp))
         else:
-            return text(ceeateReply('good', msg, nonce, timestamp))
+            return text(ceeateReply('不支持此类型的数据', msg, nonce, timestamp))
     except InvalidSignatureException:
         return text("hello")
 
 
-def singleUser(content, msg, userId, nonce, timestamp):
+@app.post("/neno-tg")
+def nenoTGPOST(request):
+    return ()
+
+
+def singleUser(content, photo, msg, userId, nonce, timestamp):
     githubToken = os.environ.get('githubToken')
     githubRepo = os.environ.get('githubRepo')
     githubUserName = os.environ.get('githubUserName')
-    return reply(githubToken, githubRepo, githubUserName, content, msg, nonce, timestamp)
+    return reply(githubToken, githubRepo, githubUserName, content, photo, msg, nonce, timestamp)
 
 
-def multipleUser(content, msg, userId, nonce, timestamp):
+def multipleUser(content, photo, msg, userId, nonce, timestamp):
     if content.startswith("token[") and content.endswith("]"):
         githubToken = content[6:-1]
         r.set("githubToken_{}".format(userId), githubToken)
@@ -154,11 +175,22 @@ def multipleUser(content, msg, userId, nonce, timestamp):
         githubToken = githubToken.decode("UTF-8")
         githubRepo = githubRepo.decode("UTF-8")
         githubUserName = githubUserName.decode("UTF-8")
-        return reply(githubToken, githubRepo, githubUserName, content, msg, nonce, timestamp)
+        return reply(githubToken, githubRepo, githubUserName, content, photo, msg, nonce, timestamp)
 
 
-def reply(githubToken, githubRepo, githubUserName, content, msg, nonce, timestamp):
-    status_code, retext = sendNenoContentToGithub(githubToken, githubRepo, githubUserName, content)
+def getFileDown(filePath):
+
+    response = requests.request("GET", filePath)
+    photoContent = response.content
+    return photoContent
+
+
+def reply(githubToken, githubRepo, githubUserName, content, photo, msg, nonce, timestamp):
+    photoId = ""
+    if photo != "":
+        status_code, retext, photoId = sendNenoPhotoToGithub(githubToken, githubRepo, githubUserName, photo)
+
+    status_code, retext = sendNenoContentToGithub(githubToken, githubRepo, githubUserName, content,photoId)
     if (status_code == 201):
         return text(ceeateReply('保存成功', msg, nonce, timestamp))
     elif status_code == 401:
@@ -182,6 +214,7 @@ def clearUserGithubSetting(userId):
     r.delete("githubRepo_{}".format(userId))
     r.delete("githubUserName_{}".format(userId))
 
+
 # 从redis获得保存的用户github设置
 def findGithubConfigByUserT(userId):
     githubToken = r.get("githubToken_{}".format(userId))
@@ -191,8 +224,31 @@ def findGithubConfigByUserT(userId):
     return githubToken, githubRepo, githubUserName
 
 
+# 根据用户的github设置将照片发送到github
+def sendNenoPhotoToGithub(githubToken, githubRepo, githubUserName, photo):
+    photoId = str(bson.ObjectId())
+
+    suffixName = imghdr.what(None, photo)
+
+    url = "https://api.github.com/repos/{}/{}/contents/picData/{}.{}".format(githubUserName, githubRepo,
+                                                                             photoId, suffixName)
+
+    payload = json.dumps({
+        "content": base64.b64encode(photo).decode("utf-8"),
+        "message": "pic upload wx"
+    })
+    headers = {
+        'authorization': 'token {}'.format(githubToken),
+        'Content-Type': 'application/json'
+    }
+
+    response = requests.request("PUT", url, headers=headers, data=payload)
+    print(response.status_code, response.text, photoId)
+    return response.status_code, response.text, photoId
+
+
 # 根据用户的github设置将内容发送到github
-def sendNenoContentToGithub(githubToken, githubRepo, githubUserName, content):
+def sendNenoContentToGithub(githubToken, githubRepo, githubUserName, content,photoId):
     utc_offset_sec = time.altzone if time.localtime().tm_isdst else time.timezone
     utc_offset = datetime.timedelta(seconds=-utc_offset_sec)
     createTime = datetime.datetime.now().replace(tzinfo=datetime.timezone(offset=utc_offset), microsecond=0).isoformat()
@@ -201,6 +257,11 @@ def sendNenoContentToGithub(githubToken, githubRepo, githubUserName, content):
 
     url = "https://api.github.com/repos/{}/{}/contents/{}/{}.json".format(githubUserName, githubRepo, createDate, _id)
     tags = re.findall(r"#\S*", content)
+    images = []
+    if photoId != "":
+        images = [{
+            "key": photoId
+        }]
     neno = {
         "content": "<p>{}</p>".format(content),
         "pureContent": content,
@@ -208,7 +269,7 @@ def sendNenoContentToGithub(githubToken, githubRepo, githubUserName, content):
         "parentId": "",
         "source": "wechat",
         "tags": tags,
-        "images": [],
+        "images": images,
         "created_at": createTime,
         "sha": "",
         "update_at": createTime
@@ -227,7 +288,6 @@ def sendNenoContentToGithub(githubToken, githubRepo, githubUserName, content):
     # print(response.text)
     # print(response.status_code)
     return response.status_code, response.text
-
 
 
 app.run(host="0.0.0.0", port=9000, debug=False)
