@@ -179,7 +179,6 @@ def multipleUser(content, photo, msg, userId, nonce, timestamp):
 
 
 def getFileDown(filePath):
-
     response = requests.request("GET", filePath)
     photoContent = response.content
     return photoContent
@@ -187,10 +186,11 @@ def getFileDown(filePath):
 
 def reply(githubToken, githubRepo, githubUserName, content, photo, msg, nonce, timestamp):
     photoId = ""
+    suffixName=""
     if photo != "":
-        status_code, retext, photoId = sendNenoPhotoToGithub(githubToken, githubRepo, githubUserName, photo)
+        status_code, retext, photoId,suffixName = sendNenoPhotoToGithub(githubToken, githubRepo, githubUserName, photo)
 
-    status_code, retext = sendNenoContentToGithub(githubToken, githubRepo, githubUserName, content,photoId)
+    status_code, retext = sendNenoContentToGithub(githubToken, githubRepo, githubUserName, content, photoId,suffixName)
     if (status_code == 201):
         return text(ceeateReply('保存成功', msg, nonce, timestamp))
     elif status_code == 401:
@@ -244,11 +244,11 @@ def sendNenoPhotoToGithub(githubToken, githubRepo, githubUserName, photo):
 
     response = requests.request("PUT", url, headers=headers, data=payload)
     print(response.status_code, response.text, photoId)
-    return response.status_code, response.text, photoId
+    return response.status_code, response.text, photoId,suffixName
 
 
 # 根据用户的github设置将内容发送到github
-def sendNenoContentToGithub(githubToken, githubRepo, githubUserName, content,photoId):
+def sendNenoContentToGithub(githubToken, githubRepo, githubUserName, content, photoId, suffixName):
     utc_offset_sec = time.altzone if time.localtime().tm_isdst else time.timezone
     utc_offset = datetime.timedelta(seconds=-utc_offset_sec)
     createTime = datetime.datetime.now().replace(tzinfo=datetime.timezone(offset=utc_offset), microsecond=0).isoformat()
@@ -260,7 +260,8 @@ def sendNenoContentToGithub(githubToken, githubRepo, githubUserName, content,pho
     images = []
     if photoId != "":
         images = [{
-            "key": photoId
+            "key": photoId,
+            "suffixName": suffixName
         }]
     neno = {
         "content": "<p>{}</p>".format(content),
